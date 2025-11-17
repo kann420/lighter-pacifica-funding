@@ -1,25 +1,19 @@
 from flask import Flask, render_template_string
 import requests
 import datetime
+import os
 
-# ================== CONFIG ==================
+# ================== CONFIG (GIỐNG CMD) ==================
 LIGHTER_URL = "https://mainnet.zklighter.elliot.ai/api/v1/funding-rates"
 PACIFICA_INFO_URL = "https://api.pacifica.fi/api/v1/info"
 PACIFICA_FUNDING_URL = "https://api.pacifica.fi/api/v1/funding_rate/history"
 
-MIN_ABS_DIFF = 0.0005  # lọc kèo có chênh lệch funding đủ lớn (theo decimal, trước khi *100)
-
+MIN_ABS_DIFF = 0.0  # hiện tại CMD cũng không dùng ngưỡng này
 
 app = Flask(__name__)
 
 
 # ================== HÀM DÙNG CHUNG ==================
-
-def fetch_json(url, **kwargs):
-    resp = requests.get(url, timeout=15, **kwargs)
-    resp.raise_for_status()
-    return resp.json()
-
 
 def normalize_symbol(raw):
     s = str(raw).upper()
@@ -31,11 +25,17 @@ def normalize_symbol(raw):
     return base
 
 
-# ---------- Lighter ----------
+def fetch_json(url, **kwargs):
+    resp = requests.get(url, timeout=15, **kwargs)
+    resp.raise_for_status()
+    return resp.json()
+
+
+# ---------- Lighter (y hệt CMD, có chia 8 ra 1h) ----------
 
 def extract_lighter_funding():
     """
-    Parse funding Lighter theo format:
+    Parse funding Lighter theo format thực tế:
     {
         "code":200,
         "funding_rates":[
@@ -43,7 +43,7 @@ def extract_lighter_funding():
             ...
         ]
     }
-    'rate' là funding cho chu kỳ 8h => chia 8 để ra funding /1h.
+    'rate' là funding cho chu kỳ 8h -> chia 8 để ra funding /1h (decimal).
     """
     try:
         data = fetch_json(LIGHTER_URL)
@@ -65,7 +65,7 @@ def extract_lighter_funding():
             if sym is None or fr is None:
                 continue
             base = normalize_symbol(sym)
-            # funding /1h
+            # funding /1h (giống CMD)
             out[base] = float(fr) / 8.0
         except Exception:
             continue
@@ -73,9 +73,12 @@ def extract_lighter_funding():
     return out
 
 
-# ---------- Pacifica ----------
+# ---------- Pacifica (y hệt CMD) ----------
 
 def get_pacifica_symbols():
+    """
+    Lấy list tất cả symbol perp trên Pacifica từ /info
+    """
     try:
         data = fetch_json(PACIFICA_INFO_URL)
     except Exception as e:
@@ -113,6 +116,10 @@ def get_pacifica_symbols():
 
 
 def extract_pacifica_funding():
+    """
+    Trả về dict {BASE: funding_rate} dùng funding_rate (1hr Funding) mới nhất
+    fallback sang next_funding_rate nếu cần.
+    """
     symbols = get_pacifica_symbols()
     if not symbols:
         return {}
@@ -135,21 +142,20 @@ def extract_pacifica_funding():
                 if isinstance(v, list):
                     rows = v
                     break
-
         if not rows:
             continue
 
         last = rows[0]
-
-        # funding_rate = 1hr funding đã trả xong (khớp ô "1hr Funding" trên UI)
         fr = None
+
+        # Ưu tiên funding_rate để khớp với ô "1hr Funding" trên UI
         if last.get("funding_rate") is not None:
             try:
                 fr = float(last["funding_rate"])
             except Exception:
                 fr = None
 
-        # fallback: nếu không có funding_rate thì dùng next_funding_rate
+        # Nếu vì lý do gì đó funding_rate không có, fallback sang next_funding_rate
         if fr is None and last.get("next_funding_rate") is not None:
             try:
                 fr = float(last["next_funding_rate"])
@@ -161,8 +167,54 @@ def extract_pacifica_funding():
 
         base = normalize_symbol(sym)
         out[base] = fr
-
     return out
+
+
+# ---------- Logic build kèo (copy từ main() CMD) ----------
+
+def build_arbitrage_rows():
+    lighter = extract_lighter_funding()
+    pacifica = extract_pacifica_funding()
+
+    if not lighter or not pacifica:
+        return [], "Thiếu data 1 trong 2 sàn, dừng."
+
+    tokens = sorted(set(lighter.keys()) & set(pacifica.keys()))
+    if not tokens:
+        return [], "Không có token nào trùng giữa 2 sàn (sau khi normalize)."
+
+    rows = []
+    for base in tokens:
+        fr_l = lighter[base]
+        fr_p = pacifica[base]
+        diff = fr_l - fr_p
+        edge = abs(diff)
+
+        # CMD hiện tại KHÔNG lọc theo MIN_ABS_DIFF, nên web cũng giữ nguyên
+        if diff > 0:
+            lighter_side = "SHORT"
+            pacifica_side = "LONG"
+        else:
+            lighter_side = "LONG"
+            pacifica_side = "SHORT"
+
+        approx_apr = edge * 24 * 365 * 100  # funding /1h -> APR
+
+        rows.append({
+            "token": base,
+            "fr_l": fr_l,
+            "fr_p": fr_p,
+            "edge": edge,
+            "apr": approx_apr,
+            "lighter_side": lighter_side,
+            "pacifica_side": pacifica_side,
+        })
+
+    if not rows:
+        return [], "Không có kèo nào (rows rỗng)."
+
+    rows.sort(key=lambda r: r["edge"], reverse=True)
+    return rows, None
 
 
 # ================== TEMPLATE HTML ==================
@@ -190,14 +242,14 @@ HTML_TEMPLATE = """
 <div class="container py-4">
   <h1 class="mb-2">Funding Arbitrage — Lighter x Pacifica</h1>
   <p class="text-secondary mb-1">
-    Data: 1h funding hiện tại, lấy từ public API của Lighter &amp; Pacifica (không dùng API key).
+    Data: 1h funding hiện tại, đọc từ public API của Lighter &amp; Pacifica (không dùng API key).
   </p>
   <p class="text-secondary mb-3" style="font-size:0.9rem;">
     Thời gian quét: <b>{{ scanned_at }}</b>
   </p>
 
   {% if error %}
-    <div class="alert alert-danger">{{ error }}</div>
+    <div class="alert alert-warning">{{ error }}</div>
   {% endif %}
 
   {% if rows %}
@@ -206,9 +258,9 @@ HTML_TEMPLATE = """
       <thead>
         <tr>
           <th>Token</th>
-          <th>Funding Lighter (&#37;/1h)</th>
-          <th>Funding Pacifica (&#37;/1h)</th>
-          <th>Chênh lệch (&#37;/1h)</th>
+          <th>Funding Lighter (%/1h)</th>
+          <th>Funding Pacifica (%/1h)</th>
+          <th>Chênh lệch (%/1h)</th>
           <th>APR xấp xỉ (%/năm)</th>
           <th>Lighter nên</th>
           <th>Pacifica nên</th>
@@ -232,14 +284,14 @@ HTML_TEMPLATE = """
     </table>
   </div>
   {% else %}
-    <p>Hiện tại không có kèo nào vượt ngưỡng chênh lệch MIN_ABS_DIFF.</p>
+    <p>Hiện tại không có kèo nào (rows rỗng).</p>
   {% endif %}
 
   <hr class="border-secondary mt-4">
   <p class="text-secondary" style="font-size:0.85rem;">
     Ghi chú:<br>
-    – Funding &gt; 0 thường là LONG trả funding cho SHORT (hãy xác nhận lại với UI từng sàn trước khi trade).<br>
-    – APR xấp xỉ chỉ là ước lượng dựa trên funding hiện tại, dùng để so sánh tương đối giữa các kèo.<br>
+    – Funding &gt; 0 thường là LONG trả funding cho SHORT (hãy confirm lại trên UI từng sàn trước khi trade).<br>
+    – APR xấp xỉ chỉ là ước lượng dựa trên funding hiện tại, dùng để so sánh tương đối các kèo.<br>
     – Tool này chỉ mang tính tham khảo, bạn tự chịu trách nhiệm với mọi quyết định trade.
   </p>
 </div>
@@ -248,57 +300,20 @@ HTML_TEMPLATE = """
 """
 
 
+# ================== ROUTE FLASK ==================
+
 @app.route("/")
 def index():
-    lighter = extract_lighter_funding()
-    pacifica = extract_pacifica_funding()
-
+    rows, err = build_arbitrage_rows()
     scanned_at = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-
-    if not lighter or not pacifica:
-        return render_template_string(
-            HTML_TEMPLATE,
-            rows=[],
-            error="Không lấy được đủ dữ liệu từ cả 2 sàn (Lighter hoặc Pacifica). Thử F5 lại sau vài phút.",
-            scanned_at=scanned_at,
-        )
-
-    tokens = sorted(set(lighter.keys()) & set(pacifica.keys()))
-    rows = []
-
-    for base in tokens:
-        fr_l = lighter[base]
-        fr_p = pacifica[base]
-        diff = fr_l - fr_p
-        edge = abs(diff)
-        if edge < MIN_ABS_DIFF:
-            continue
-
-        if diff > 0:
-            lighter_side = "SHORT"
-            pacifica_side = "LONG"
-        else:
-            lighter_side = "LONG"
-            pacifica_side = "SHORT"
-
-        approx_apr = edge * 24 * 365 * 100  # funding /1h -> APR
-
-        rows.append({
-            "token": base,
-            "fr_l": fr_l,
-            "fr_p": fr_p,
-            "edge": edge,
-            "apr": approx_apr,
-            "lighter_side": lighter_side,
-            "pacifica_side": pacifica_side,
-        })
-
-    rows.sort(key=lambda r: r["edge"], reverse=True)
-
-    return render_template_string(HTML_TEMPLATE, rows=rows, error=None, scanned_at=scanned_at)
+    return render_template_string(
+        HTML_TEMPLATE,
+        rows=rows,
+        error=err,
+        scanned_at=scanned_at,
+    )
 
 
 if __name__ == "__main__":
-    import os
-    port = int(os.environ.get("PORT", 5000))  # Render sẽ set biến PORT
+    port = int(os.environ.get("PORT", 5000))  # Render dùng PORT env
     app.run(host="0.0.0.0", port=port)
