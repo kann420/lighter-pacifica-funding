@@ -244,7 +244,7 @@ HTML_TEMPLATE = """
     <div>
       <h1 class="mb-1">Funding Arbitrage — Lighter x Pacifica</h1>
       <p class="text-secondary mb-1">
-        Data: 1h funding hiện tại, đọc từ public API của Lighter &amp; Pacifica (không dùng API key).
+        Data: Funding theo giờ real time, public API của Lighter &amp; Pacifica (không dùng API key).
       </p>
       <p class="text-secondary mb-0" style="font-size:0.9rem;">
         Thời gian quét: <b>{{ scanned_at }}</b>
@@ -269,12 +269,12 @@ HTML_TEMPLATE = """
       <thead>
         <tr>
           <th>Token</th>
-          <th>Funding Lighter (%/1h)</th>
-          <th>Funding Pacifica (%/1h)</th>
-          <th>Chênh lệch (%/1h)</th>
-          <th>APR xấp xỉ (%/năm)</th>
-          <th>Lighter nên</th>
-          <th>Pacifica nên</th>
+          <th>Funding Lighter (%)</th>
+          <th>Funding Pacifica (%)</th>
+          <th>Chênh lệch (%)</th>
+          <th>APR (%)</th>
+          <th>Lighter </th>
+          <th>Pacifica </th>
         </tr>
       </thead>
       <tbody>
@@ -301,9 +301,9 @@ HTML_TEMPLATE = """
   <hr class="border-secondary mt-4">
   <p class="text-secondary" style="font-size:0.85rem;">
     Ghi chú:<br>
-    – Funding &gt; 0 thường là LONG trả funding cho SHORT (hãy confirm lại trên UI từng sàn trước khi trade).<br>
-    – APR xấp xỉ chỉ là ước lượng dựa trên funding hiện tại, dùng để so sánh tương đối các kèo.<br>
-    – Tool này chỉ mang tính tham khảo, bạn tự chịu trách nhiệm với mọi quyết định trade.
+    – Funding DƯƠNG thì LONG trả tiền cho SHORT. Funding ÂM thì SHORT trả tiền cho LONG.<br>
+    – APR chỉ là ước lượng dựa trên funding hiện tại, dùng để so sánh các cặp của 2 sàn.<br>
+    – Tool chỉ mang tính tham khảo, hãy kiểm tra lại funding trước khi vào lệnh và tự chịu trách nhiệm.<br>
   </p>
 </div>
 </body>
