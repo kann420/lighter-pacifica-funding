@@ -240,20 +240,31 @@ HTML_TEMPLATE = """
 </head>
 <body>
 <div class="container py-4">
-  <h1 class="mb-2">Funding Arbitrage — Lighter x Pacifica</h1>
-  <p class="text-secondary mb-1">
-    Data: 1h funding hiện tại, đọc từ public API của Lighter &amp; Pacifica (không dùng API key).
-  </p>
-  <p class="text-secondary mb-3" style="font-size:0.9rem;">
-    Thời gian quét: <b>{{ scanned_at }}</b>
-  </p>
+  <div class="d-flex flex-wrap align-items-center justify-content-between mb-2 gap-2">
+    <div>
+      <h1 class="mb-1">Funding Arbitrage — Lighter x Pacifica</h1>
+      <p class="text-secondary mb-1">
+        Data: 1h funding hiện tại, đọc từ public API của Lighter &amp; Pacifica (không dùng API key).
+      </p>
+      <p class="text-secondary mb-0" style="font-size:0.9rem;">
+        Thời gian quét: <b>{{ scanned_at }}</b>
+      </p>
+    </div>
+    <div>
+      <button type="button"
+              class="btn btn-sm btn-outline-light"
+              onclick="location.reload()">
+        🔄 Refresh
+      </button>
+    </div>
+  </div>
 
   {% if error %}
-    <div class="alert alert-warning">{{ error }}</div>
+    <div class="alert alert-warning mt-3">{{ error }}</div>
   {% endif %}
 
   {% if rows %}
-  <div class="table-responsive" style="max-height: 70vh;">
+  <div class="table-responsive mt-3" style="max-height: 70vh;">
     <table class="table table-sm table-dark table-hover align-middle">
       <thead>
         <tr>
@@ -284,7 +295,7 @@ HTML_TEMPLATE = """
     </table>
   </div>
   {% else %}
-    <p>Hiện tại không có kèo nào (rows rỗng).</p>
+    <p class="mt-3">Hiện tại không có kèo nào (rows rỗng).</p>
   {% endif %}
 
   <hr class="border-secondary mt-4">
@@ -298,6 +309,7 @@ HTML_TEMPLATE = """
 </body>
 </html>
 """
+
 
 
 # ================== ROUTE FLASK ==================
